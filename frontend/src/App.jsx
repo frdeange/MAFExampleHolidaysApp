@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import Markdown from "react-markdown";
 import SwipeCard from "./components/SwipeCard.jsx";
 import { VIBES } from "./data.js";
-import { suggestDestination, buildTrip } from "./api.js";
+import { suggestDestination, buildTrip, fetchDestinationPhoto } from "./api.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -34,6 +34,7 @@ export default function App() {
   const [exitDirection, setExitDirection] = useState("right");
 
   const [destination, setDestination] = useState(null);
+  const [destPhoto, setDestPhoto] = useState(null);
   const [rejected, setRejected] = useState([]);
   const [plan, setPlan] = useState("");
   const [error, setError] = useState("");
@@ -50,6 +51,9 @@ export default function App() {
       });
       setDestination(result);
       setStage("destination");
+      // Look up a real photo of the place; fall back to a themed image if none.
+      setDestPhoto(null);
+      fetchDestinationPhoto(result.destination).then(setDestPhoto);
     } catch (err) {
       setError(String(err.message || err));
       setStage("error");
@@ -109,6 +113,7 @@ export default function App() {
     setLikes([]);
     setDislikes([]);
     setDestination(null);
+    setDestPhoto(null);
     setRejected([]);
     setPlan("");
     setError("");
@@ -148,6 +153,7 @@ export default function App() {
               <DestinationStage
                 key="destination"
                 destination={destination}
+                photo={destPhoto}
                 exitDirection={exitDirection}
                 onSwipe={handleDestinationSwipe}
               />
@@ -165,6 +171,7 @@ export default function App() {
               <TripStage
                 key="trip"
                 destination={destination}
+                photo={destPhoto}
                 plan={plan}
                 onRestart={restart}
               />
@@ -290,8 +297,8 @@ function VibeStage({ vibeIndex, exitDirection, onSwipe, likeCount }) {
           </div>
         )}
 
-        <AnimatePresence>
-          <SwipeCard key={vibe.id} onSwipe={onSwipe} exitDirection={exitDirection}>
+        <AnimatePresence custom={exitDirection}>
+          <SwipeCard key={vibe.id} onSwipe={onSwipe}>
             <PhotoCard
               image={vibe.image}
               accent={vibe.accent}
@@ -315,7 +322,7 @@ function VibeStage({ vibeIndex, exitDirection, onSwipe, likeCount }) {
   );
 }
 
-function DestinationStage({ destination, exitDirection, onSwipe }) {
+function DestinationStage({ destination, photo, exitDirection, onSwipe }) {
   return (
     <motion.div
       className="flex w-full flex-col items-center"
@@ -328,14 +335,10 @@ function DestinationStage({ destination, exitDirection, onSwipe }) {
       </p>
 
       <div className="relative aspect-[3/4] w-full">
-        <AnimatePresence>
-          <SwipeCard
-            key={destination.destination}
-            onSwipe={onSwipe}
-            exitDirection={exitDirection}
-          >
+        <AnimatePresence custom={exitDirection}>
+          <SwipeCard key={destination.destination} onSwipe={onSwipe}>
             <PhotoCard
-              image={destinationImage(destination.destination)}
+              image={photo || destinationImage(destination.destination)}
               accent="#8b5cf6"
               emoji="📍"
               title={destination.destination}
@@ -356,7 +359,7 @@ function DestinationStage({ destination, exitDirection, onSwipe }) {
   );
 }
 
-function TripStage({ destination, plan, onRestart }) {
+function TripStage({ destination, photo, plan, onRestart }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
@@ -366,7 +369,7 @@ function TripStage({ destination, plan, onRestart }) {
     >
       <div className="relative mb-4 overflow-hidden rounded-3xl shadow-xl">
         <img
-          src={destinationImage(destination?.destination)}
+          src={photo || destinationImage(destination?.destination)}
           alt={destination?.destination}
           className="h-36 w-full object-cover"
         />
