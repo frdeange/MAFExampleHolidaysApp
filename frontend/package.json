@@ -1,0 +1,23 @@
+{
+  "name": "travel-concierge-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "motion": "12.40.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-markdown": "10.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "tailwindcss": "4.3.1",
+    "vite": "8.0.16"
+  }
+}

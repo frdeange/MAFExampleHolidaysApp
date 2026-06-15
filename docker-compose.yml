@@ -1,0 +1,70 @@
+# Local demo stack for Act 2: three MCP servers + the agent API + the swipe
+# frontend.
+#
+# Act 1 (the DevUI multi-agent view) is run separately on the presenter's
+# machine, because the DevUI is designed to bind to localhost:
+#     python backend/main.py
+# It reaches the MCP servers through their published ports (8001-8003).
+#
+# Azure auth: the API reuses your host `az login` by mounting ~/.azure into the
+# container (read-only). Make sure you have run `az login` first.
+#
+# Bring it up with:  docker compose up --build
+
+services:
+  # ---- MCP servers (mock data) ----
+  # Ports are published so a locally-run DevUI (Act 1) can reach them too.
+  flights:
+    build: ./mcps
+    command: python flights_server.py
+    environment:
+      PORT: 8001
+    ports:
+      - "8001:8001"
+
+  weather:
+    build: ./mcps
+    command: python weather_server.py
+    environment:
+      PORT: 8002
+    ports:
+      - "8002:8002"
+
+  activities:
+    build: ./mcps
+    command: python activities_server.py
+    environment:
+      PORT: 8003
+    ports:
+      - "8003:8003"
+
+  # ---- Act 2: frontend HTTP API ----
+  api:
+    build: ./backend
+    command: uvicorn api:app --host 0.0.0.0 --port 9000
+    ports:
+      - "9000:9000"
+    env_file:
+      - .env
+    environment:
+      FLIGHTS_MCP_URL: http://flights:8001/mcp
+      WEATHER_MCP_URL: http://weather:8002/mcp
+      ACTIVITIES_MCP_URL: http://activities:8003/mcp
+    volumes:
+      # Read-write so the Azure CLI can refresh its token cache.
+      - ${HOME}/.azure:/root/.azure
+    depends_on:
+      - flights
+      - weather
+      - activities
+
+  # ---- Act 2: Tinder-style swipe frontend ----
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # The browser runs on the host, so it reaches the API on the published port.
+      VITE_API_URL: http://localhost:9000
+    depends_on:
+      - api

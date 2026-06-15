@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  color: #f1f5f9;
+}
+
+/* ---- Animated aurora background ---- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0b1120 60%, #060912 100%);
+}
+
+.aurora span {
+  position: absolute;
+  display: block;
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  animation: drift 18s ease-in-out infinite;
+}
+
+.aurora span:nth-child(1) {
+  background: #0ea5e9;
+  top: -14vmax;
+  left: -10vmax;
+  animation-delay: 0s;
+}
+
+.aurora span:nth-child(2) {
+  background: #8b5cf6;
+  bottom: -16vmax;
+  right: -8vmax;
+  animation-delay: -6s;
+}
+
+.aurora span:nth-child(3) {
+  background: #ec4899;
+  top: 30%;
+  right: 20%;
+  width: 30vmax;
+  height: 30vmax;
+  opacity: 0.4;
+  animation-delay: -11s;
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(6vmax, 4vmax) scale(1.12);
+  }
+  66% {
+    transform: translate(-5vmax, 2vmax) scale(0.92);
+  }
+}
+
+/* Frosted-glass surface used across panels. */
+.glass {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+/* ---- Trip plan typography (rendered markdown) ---- */
+.prose-trip h2 {
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin: 0 0 0.5rem;
+  color: #0f172a;
+}
+
+.prose-trip h3 {
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 1.1rem 0 0.4rem;
+  color: #0369a1;
+}
+
+.prose-trip p {
+  margin: 0 0 0.6rem;
+  line-height: 1.55;
+}
+
+.prose-trip ul {
+  margin: 0 0 0.6rem;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+
+.prose-trip li {
+  margin: 0.25rem 0;
+  line-height: 1.5;
+}
+
+.prose-trip strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.prose-trip hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 0.9rem 0;
+}
+
+/* Hide scrollbars but keep scrolling. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
