@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import Markdown from "react-markdown";
 import SwipeCard from "./components/SwipeCard.jsx";
@@ -382,10 +382,8 @@ function TripStage({ destination, photo, plan, onRestart }) {
         </div>
       </div>
 
-      <div className="no-scrollbar max-h-[52vh] overflow-y-auto rounded-3xl bg-white px-6 py-5 text-slate-800 shadow-xl">
-        <div className="prose-trip">
-          <Markdown>{plan}</Markdown>
-        </div>
+      <div className="no-scrollbar max-h-[56vh] overflow-y-auto px-0.5 pb-1">
+        <TripPlan plan={plan} />
       </div>
 
       <button
@@ -395,6 +393,302 @@ function TripStage({ destination, photo, plan, onRestart }) {
         Plan another trip
       </button>
     </motion.div>
+  );
+}
+
+// ---- Trip plan: turn the agent's markdown into floating, themed cards ----
+
+// Section keyword -> icon + accent colour + renderer type. Matched against the
+// markdown heading text so the layout adapts to whatever the planner returns.
+const SECTION_META = [
+  { keys: ["flight", "airline"], icon: "✈️", accent: "#0ea5e9", type: "flights" },
+  { keys: ["weather", "climate", "forecast", "temperature"], icon: "🌤️", accent: "#f59e0b", type: "weather" },
+  { keys: ["activit", "experience", "sightsee", "nightlife"], icon: "🎉", accent: "#d946ef", type: "activities" },
+  { keys: ["food", "dining", "restaurant", "cuisine"], icon: "🍽️", accent: "#f43f5e", type: "food" },
+  { keys: ["stay", "hotel", "accommodation", "lodging"], icon: "🏨", accent: "#10b981", type: "stay" },
+  { keys: ["pack", "advice"], icon: "🎒", accent: "#8b5cf6", type: "tips" },
+  { keys: ["budget"], icon: "💶", accent: "#22c55e", type: "budget" },
+];
+
+function sectionMeta(title) {
+  const t = title.toLowerCase();
+  for (const m of SECTION_META) {
+    // Match each keyword at a word boundary so "cost" never matches "Costa".
+    if (m.keys.some((k) => new RegExp(`\\b${k}`).test(t))) return m;
+  }
+  return null;
+}
+
+function cleanInline(s = "") {
+  return s.replace(/\*\*/g, "").replace(/`/g, "").trim();
+}
+
+// Split the plan into a title plus a list of sections, keyed off markdown
+// headings. Anything before the first section heading becomes the title.
+function parsePlan(md = "") {
+  const lines = md.replace(/\r/g, "").split("\n");
+  let title = "";
+  const sections = [];
+  let current = null;
+  for (const raw of lines) {
+    const h = raw.match(/^\s{0,3}#{1,6}\s+(.*)$/);
+    if (h) {
+      const text = cleanInline(h[1].replace(/#/g, ""));
+      const meta = sectionMeta(text);
+      if (!meta && current === null && sections.length === 0 && !title) {
+        title = text;
+        continue;
+      }
+      current = {
+        title: text,
+        meta: meta || { icon: "📌", accent: "#64748b", type: "generic" },
+        lines: [],
+      };
+      sections.push(current);
+    } else if (current) {
+      current.lines.push(raw);
+    } else if (!title && raw.trim()) {
+      title = cleanInline(raw);
+    }
+  }
+  if (sections.length === 0) {
+    sections.push({
+      title: "Your trip",
+      meta: { icon: "🧳", accent: "#0ea5e9", type: "generic" },
+      lines,
+    });
+  }
+  return { title, sections };
+}
+
+function parseList(body) {
+  const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+  const bullets = lines
+    .filter((l) => /^[-*•]\s+/.test(l))
+    .map((l) => cleanInline(l.replace(/^[-*•]\s+/, "")));
+  if (bullets.length) return bullets;
+  return lines.filter((l) => !/:$/.test(l)).map(cleanInline);
+}
+
+function parseKV(body) {
+  return parseList(body)
+    .map((item) => {
+      const idx = item.indexOf(":");
+      if (idx === -1) return { label: "", value: item };
+      return { label: item.slice(0, idx).trim(), value: item.slice(idx + 1).trim() };
+    })
+    .filter((kv) => kv.value);
+}
+
+function parseFlights(body) {
+  const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
+  const intro = [];
+  const flights = [];
+  for (const l of lines) {
+    const clean = cleanInline(l.replace(/^[-*•]\s+/, ""));
+    if (clean.includes("—") && /[€$£]|\d/.test(clean)) {
+      const parts = clean.split("—").map((p) => p.trim()).filter(Boolean);
+      const name = parts.shift() || "Flight";
+      flights.push({ name, chips: parts });
+    } else if (clean) {
+      intro.push(clean);
+    }
+  }
+  return { intro, flights };
+}
+
+function weatherIcon(label = "") {
+  const l = label.toLowerCase();
+  if (l.includes("high")) return "🌡️";
+  if (l.includes("low")) return "🌙";
+  if (l.includes("sea") || l.includes("water")) return "🌊";
+  if (l.includes("rain") || l.includes("condition") || l.includes("sky")) return "🌦️";
+  if (l.includes("pack")) return "🎒";
+  if (l.includes("sun") || l.includes("uv")) return "☀️";
+  if (l.includes("wind")) return "💨";
+  if (l.includes("humid")) return "💧";
+  return "📍";
+}
+
+function chipStyle(text, accent) {
+  const t = text.toLowerCase();
+  if (/[€$£]/.test(text)) return { background: `${accent}1f`, color: accent };
+  if (t.includes("nonstop") || t.includes("direct")) return { background: "#dcfce7", color: "#15803d" };
+  if (t.includes("stop")) return { background: "#fef3c7", color: "#b45309" };
+  return { background: "#f1f5f9", color: "#475569" };
+}
+
+// Fallback markdown styling for sections without a specialised renderer.
+const PLAN_MD = {
+  p: ({ children }) => <p className="mb-2 leading-relaxed text-slate-600">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+  em: ({ children }) => <em className="text-slate-500">{children}</em>,
+  ul: ({ children }) => <ul className="space-y-1.5">{children}</ul>,
+  ol: ({ children }) => <ol className="space-y-1.5">{children}</ol>,
+  li: ({ children }) => (
+    <li className="flex gap-2 text-slate-600">
+      <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+      <span>{children}</span>
+    </li>
+  ),
+};
+
+function TripPlan({ plan }) {
+  const { title, sections } = useMemo(() => parsePlan(plan), [plan]);
+  return (
+    <div className="space-y-3">
+      {title && (
+        <p className="px-2 text-center text-xs font-medium text-slate-400">
+          {title}
+        </p>
+      )}
+      {sections.map((section, i) => (
+        <SectionCard key={i} section={section} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function SectionCard({ section, index }) {
+  const { meta } = section;
+  const body = section.lines.join("\n").trim();
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 + index * 0.09, duration: 0.4 }}
+      className="overflow-hidden rounded-3xl bg-white shadow-xl shadow-black/30 ring-1 ring-black/5"
+    >
+      <div
+        className="flex items-center gap-3 px-5 py-3.5"
+        style={{ background: `linear-gradient(135deg, ${meta.accent}22, ${meta.accent}08)` }}
+      >
+        <span
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-xl"
+          style={{ background: `${meta.accent}26` }}
+        >
+          {meta.icon}
+        </span>
+        <h3
+          className="text-sm font-extrabold uppercase tracking-wide"
+          style={{ color: meta.accent }}
+        >
+          {section.title}
+        </h3>
+      </div>
+      <div className="px-5 py-4 text-[15px]">
+        <SectionBody section={section} body={body} />
+      </div>
+    </motion.div>
+  );
+}
+
+function SectionBody({ section, body }) {
+  const { type, accent } = section.meta;
+
+  if (type === "weather") {
+    const tiles = parseKV(body);
+    if (tiles.length) return <WeatherTiles tiles={tiles} />;
+  }
+  if (type === "flights") {
+    const { intro, flights } = parseFlights(body);
+    if (flights.length) return <FlightList intro={intro} flights={flights} accent={accent} />;
+  }
+  if (type === "activities") {
+    const items = parseList(body);
+    if (items.length) return <ActivityChips items={items} accent={accent} />;
+  }
+  return (
+    <div className="prose-trip">
+      <Markdown components={PLAN_MD}>{body}</Markdown>
+    </div>
+  );
+}
+
+function WeatherTiles({ tiles }) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5">
+      {tiles.map((t, i) => {
+        const wide = !t.label || t.value.length > 22;
+        return (
+          <div
+            key={i}
+            className={`rounded-2xl bg-slate-50 p-3 ${wide ? "col-span-2" : ""}`}
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className="text-sm">{weatherIcon(t.label)}</span>
+              <span>{t.label || "Note"}</span>
+            </div>
+            <div className="mt-1 font-bold text-slate-800">{t.value}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FlightList({ intro, flights, accent }) {
+  return (
+    <div className="space-y-2.5">
+      {intro.map((line, i) => (
+        <p key={`intro-${i}`} className="text-sm text-slate-500">
+          {line}
+        </p>
+      ))}
+      {flights.map((f, i) => (
+        <div key={i} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+          <div className="flex items-center gap-2 font-bold text-slate-800">
+            <span>✈️</span>
+            <span>{f.name}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {f.chips.map((c, j) => (
+              <span
+                key={j}
+                className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={chipStyle(c, accent)}
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityChips({ items, accent }) {
+  const allShort = items.every((i) => i.length <= 26);
+  if (allShort) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {items.map((it, i) => (
+          <span
+            key={i}
+            className="rounded-full px-3.5 py-1.5 text-sm font-semibold"
+            style={{ background: `${accent}1a`, color: accent }}
+          >
+            {it}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-2">
+      {items.map((it, i) => (
+        <li key={i} className="flex gap-2.5 text-slate-600">
+          <span
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs"
+            style={{ background: `${accent}1a`, color: accent }}
+          >
+            ✓
+          </span>
+          <span>{it}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

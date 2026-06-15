@@ -35,12 +35,10 @@ if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
 
 
 def main() -> None:
-    # Bind to localhost in the devcontainer; set DEVUI_HOST=0.0.0.0 in Docker.
-    host = os.environ.get("DEVUI_HOST", "localhost")
     mcp_tools = create_mcp_tools()
     workflow = build_workflow(mcp_tools)
 
-    server = DevServer(host=host, port=8000, ui_enabled=True, auth_enabled=False)
+    server = DevServer(host="localhost", port=8000, ui_enabled=True, auth_enabled=False)
     server.set_pending_entities([workflow])
     app = server.get_app()
 
@@ -58,7 +56,7 @@ def main() -> None:
 
     app.router.lifespan_context = lifespan
 
-    uvicorn.run(app, host=host, port=8000, log_level="info")
+    uvicorn.run(app, host="localhost", port=8000, log_level="info")
 
 
 if __name__ == "__main__":
