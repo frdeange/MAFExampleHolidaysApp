@@ -16,7 +16,17 @@ backend in two plain steps (suggest a destination, then build the trip).
 
 import os
 
-from agent_framework import Agent, MCPStreamableHTTPTool
+from agent_framework import (
+    Agent,
+    AgentExecutorRequest,
+    AgentExecutorResponse,
+    Executor,
+    MCPStreamableHTTPTool,
+    WorkflowBuilder,
+    WorkflowContext,
+    handler,
+)
+from agent_framework._workflows._message_utils import normalize_messages_input
 from agent_framework.foundry import FoundryChatClient
 from agent_framework.orchestrations import SequentialBuilder
 from azure.identity import AzureCliCredential
@@ -207,4 +217,86 @@ def build_trip_workflow(mcp_tools: list[MCPStreamableHTTPTool]):
         participants=[flights, weather, activities, planner],
     ).build()
     workflow.name = "Trip Builder"
+    return workflow
+
+
+class _GatherForPlanner(Executor):
+    """Fan-in node that merges the three specialists' summaries for the planner.
+
+    In the parallel workflow the flights, weather and activities agents run at the
+    same time, so they each finish with their own separate reply. This executor
+    waits for all three (fan-in), then hands the trip_planner a single clean prompt
+    containing the original request, the chosen destination and the three
+    summaries — so the planner sees exactly the same information it would have seen
+    in the sequential chain.
+
+    Only assistant text is forwarded (no raw tool-call messages), which keeps the
+    planner's input simple and deterministic.
+    """
+
+    @handler
+    async def gather(
+        self,
+        results: list[AgentExecutorResponse],
+        ctx: WorkflowContext[AgentExecutorRequest],
+    ) -> None:
+        # All three specialists branched from the concierge, so any of their
+        # conversations contains the shared prefix: the traveller request (user)
+        # and the concierge's destination pick (first assistant message).
+        prefix = results[0].full_conversation
+        traveller = next((m.text for m in prefix if str(m.role) == "user" and m.text), "")
+        destination = next((m.text for m in prefix if str(m.role) == "assistant" and m.text), "")
+
+        lines = []
+        if traveller:
+            lines.append(f"Traveller request: {traveller}")
+        if destination:
+            lines.append(destination)
+        for r in results:
+            summary = r.agent_response.text.strip()
+            if summary:
+                lines.append(summary)
+
+        prompt = "\n\n".join(lines)
+        await ctx.send_message(
+            AgentExecutorRequest(messages=normalize_messages_input(prompt), should_respond=True)
+        )
+
+
+def build_parallel_workflow(mcp_tools: list[MCPStreamableHTTPTool]):
+    """Build the PARALLEL pipeline variant (Act 1, Dev UI).
+
+    Same agents as the sequential workflow, but the three specialists run at the
+    same time instead of one after another, because they all need only the chosen
+    destination — none of them depends on another's output:
+
+                       ┌─▶ flights ─┐
+        concierge ─────┼─▶ weather ─┼─▶ gather ─▶ trip_planner
+                       └─▶ activities ┘
+
+    The concierge picks a destination, fans it out to all three specialists at
+    once, a small gather node waits for all of them and merges their summaries,
+    and the trip_planner writes the final plan. This is faster than the sequential
+    chain (the specialists overlap) while producing the same final output.
+
+    Args:
+        mcp_tools: The [flights, weather, activities] MCP tools, already created
+            via create_mcp_tools(). The caller is responsible for connecting them.
+    """
+    client = create_client()
+    flights_mcp, weather_mcp, activities_mcp = mcp_tools
+    concierge = create_concierge(client)
+    flights, weather, activities, planner = create_specialists(
+        client, flights_mcp, weather_mcp, activities_mcp
+    )
+    gather = _GatherForPlanner(id="gather")
+
+    workflow = (
+        WorkflowBuilder(start_executor=concierge, output_from=[planner])
+        .add_fan_out_edges(concierge, [flights, weather, activities])
+        .add_fan_in_edges([flights, weather, activities], gather)
+        .add_edge(gather, planner)
+        .build()
+    )
+    workflow.name = "Travel Concierge (Parallel)"
     return workflow
