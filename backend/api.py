@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agents import (
-    build_trip_workflow,
+    build_parallel_trip_workflow,
     create_client,
     create_concierge,
     create_mcp_tools,
@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
         for tool in state.mcp_tools:
             await stack.enter_async_context(tool)
         state.concierge = create_concierge(create_client())
-        state.trip_workflow = build_trip_workflow(state.mcp_tools)
+        state.trip_workflow = build_parallel_trip_workflow(state.mcp_tools)
         yield
 
 

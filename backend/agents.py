@@ -240,18 +240,17 @@ class _GatherForPlanner(Executor):
         results: list[AgentExecutorResponse],
         ctx: WorkflowContext[AgentExecutorRequest],
     ) -> None:
-        # All three specialists branched from the concierge, so any of their
-        # conversations contains the shared prefix: the traveller request (user)
-        # and the concierge's destination pick (first assistant message).
-        prefix = results[0].full_conversation
-        traveller = next((m.text for m in prefix if str(m.role) == "user" and m.text), "")
-        destination = next((m.text for m in prefix if str(m.role) == "assistant" and m.text), "")
+        # The three specialists all branched from the same point, so their
+        # conversations share a common prefix (the traveller request, plus the
+        # concierge's destination pick in Act 1). Take everything BEFORE each
+        # specialist's own response as that shared context, then append the three
+        # summaries. This works with or without a concierge.
+        prefix_len = min(
+            len(r.full_conversation) - len(r.agent_response.messages) for r in results
+        )
+        prefix = results[0].full_conversation[:prefix_len]
 
-        lines = []
-        if traveller:
-            lines.append(f"Traveller request: {traveller}")
-        if destination:
-            lines.append(destination)
+        lines = [m.text.strip() for m in prefix if m.text and m.text.strip()]
         for r in results:
             summary = r.agent_response.text.strip()
             if summary:
@@ -299,4 +298,57 @@ def build_parallel_workflow(mcp_tools: list[MCPStreamableHTTPTool]):
         .build()
     )
     workflow.name = "Travel Concierge (Parallel)"
+    return workflow
+
+
+class _DispatchTrip(Executor):
+    """Start node for the Act 2 parallel pipeline (no concierge).
+
+    The destination is already confirmed, so the frontend sends a single message
+    describing it. This node simply forwards that message to all three specialists
+    at once, so they can run in parallel via the fan-out edges.
+    """
+
+    @handler
+    async def dispatch(self, prompt: str, ctx: WorkflowContext[AgentExecutorRequest]) -> None:
+        await ctx.send_message(
+            AgentExecutorRequest(messages=normalize_messages_input(prompt), should_respond=True)
+        )
+
+
+def build_parallel_trip_workflow(mcp_tools: list[MCPStreamableHTTPTool]):
+    """Build the PARALLEL specialists-only pipeline (Act 2, frontend API).
+
+    Same as build_trip_workflow but the three specialists run at the same time
+    instead of one after another, so the frontend gets the trip plan much faster:
+
+                       ┌─▶ flights ─┐
+        dispatch ──────┼─▶ weather ─┼─▶ gather ─▶ trip_planner
+                       └─▶ activities┘
+
+    A tiny dispatch node fans the confirmed-destination message out to all three
+    specialists, a gather node waits for them and merges their summaries, and the
+    trip_planner writes the final plan — identical output to the sequential
+    version, only faster.
+
+    Args:
+        mcp_tools: The [flights, weather, activities] MCP tools, already created
+            via create_mcp_tools(). The caller is responsible for connecting them.
+    """
+    client = create_client()
+    flights_mcp, weather_mcp, activities_mcp = mcp_tools
+    flights, weather, activities, planner = create_specialists(
+        client, flights_mcp, weather_mcp, activities_mcp
+    )
+    dispatch = _DispatchTrip(id="dispatch")
+    gather = _GatherForPlanner(id="gather")
+
+    workflow = (
+        WorkflowBuilder(start_executor=dispatch, output_from=[planner])
+        .add_fan_out_edges(dispatch, [flights, weather, activities])
+        .add_fan_in_edges([flights, weather, activities], gather)
+        .add_edge(gather, planner)
+        .build()
+    )
+    workflow.name = "Trip Builder (Parallel)"
     return workflow

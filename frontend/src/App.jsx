@@ -154,6 +154,7 @@ export default function App() {
                 key="destination"
                 destination={destination}
                 photo={destPhoto}
+                likes={likes}
                 exitDirection={exitDirection}
                 onSwipe={handleDestinationSwipe}
               />
@@ -172,6 +173,7 @@ export default function App() {
                 key="trip"
                 destination={destination}
                 photo={destPhoto}
+                likes={likes}
                 plan={plan}
                 onRestart={restart}
               />
@@ -322,7 +324,7 @@ function VibeStage({ vibeIndex, exitDirection, onSwipe, likeCount }) {
   );
 }
 
-function DestinationStage({ destination, photo, exitDirection, onSwipe }) {
+function DestinationStage({ destination, photo, likes, exitDirection, onSwipe }) {
   return (
     <motion.div
       className="flex w-full flex-col items-center"
@@ -338,11 +340,11 @@ function DestinationStage({ destination, photo, exitDirection, onSwipe }) {
         <AnimatePresence custom={exitDirection}>
           <SwipeCard key={destination.destination} onSwipe={onSwipe}>
             <PhotoCard
-              image={photo || destinationImage(destination.destination)}
+              image={photo || destinationImage(destination.destination, likes)}
               accent="#8b5cf6"
               emoji="📍"
               title={destination.destination}
-              subtitle={destination.reason}
+              subtitle={cleanInline(destination.reason)}
               badge="Your match"
             />
           </SwipeCard>
@@ -359,7 +361,7 @@ function DestinationStage({ destination, photo, exitDirection, onSwipe }) {
   );
 }
 
-function TripStage({ destination, photo, plan, onRestart }) {
+function TripStage({ destination, photo, likes, plan, onRestart }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
@@ -369,7 +371,7 @@ function TripStage({ destination, photo, plan, onRestart }) {
     >
       <div className="relative mb-4 overflow-hidden rounded-3xl shadow-xl">
         <img
-          src={photo || destinationImage(destination?.destination)}
+          src={photo || destinationImage(destination?.destination, likes)}
           alt={destination?.destination}
           className="h-36 w-full object-cover"
         />
@@ -799,6 +801,12 @@ const DESTINATION_PICS = [
   "/images/food.jpg",
 ];
 
-function destinationImage(name = "") {
+function destinationImage(name = "", likes = []) {
+  // Prefer a photo that matches the traveller's top vibe, so the fallback always
+  // feels relevant (a beach lover gets a beach, not a random city or monument).
+  for (const id of likes) {
+    const vibe = VIBES.find((v) => v.id === id);
+    if (vibe) return vibe.image;
+  }
   return DESTINATION_PICS[name.length % DESTINATION_PICS.length];
 }
