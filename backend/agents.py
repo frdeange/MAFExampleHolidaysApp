@@ -29,7 +29,7 @@ from agent_framework import (
 from agent_framework._workflows._message_utils import normalize_messages_input
 from agent_framework.foundry import FoundryChatClient
 from agent_framework.orchestrations import SequentialBuilder
-from azure.identity import AzureCliCredential
+from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -46,7 +46,7 @@ def create_client() -> FoundryChatClient:
     return FoundryChatClient(
         project_endpoint=os.environ["FOUNDRY_PROJECT_ENDPOINT"],
         model=os.environ["FOUNDRY_MODEL_DEPLOYMENT"],
-        credential=AzureCliCredential(),
+        credential=DefaultAzureCredential(),
     )
 
 

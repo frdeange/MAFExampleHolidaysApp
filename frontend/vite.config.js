@@ -9,5 +9,8 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Allow any host header so the dev server works behind the Azure Container
+    // Apps ingress (whose FQDN is not known at build time).
+    allowedHosts: true,
   },
 });
