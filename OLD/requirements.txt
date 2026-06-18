@@ -1,3 +1,0 @@
-agent-framework==1.8.1
-azure-monitor-opentelemetry==1.8.8
-fastmcp==3.4.2
